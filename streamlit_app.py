@@ -55,6 +55,14 @@ def initialize_agent():
     agent_executor = create_react_agent(model, tools, checkpointer=memory)
     return agent_executor, memory
 
+agent_executor, memory = initialize_agent()
+
+def run_query(input_message,config):
+  for step in agent_executor.stream(
+    {"messages": input_message}, config, stream_mode="values"
+):
+    step["messages"][-1].pretty_print()
+
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -111,4 +119,5 @@ if st.sidebar.button("Clear Conversation"):
     except Exception:
         pass
     st.rerun()
+
 
