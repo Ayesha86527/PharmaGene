@@ -5,6 +5,8 @@ from langchain_groq import ChatGroq
 from langchain.tools import tool
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
+import tempfile
+import os
 
 # Configuring API Keys
 
@@ -18,27 +20,60 @@ st.title("App")
 
 uploaded_doc = st.file_uploader("Upload patient records", type=["pdf", "docx", "txt"])
 
-if uploaded_doc:
-  pages=document_loader(uploaded_doc)
-  text_splitter=split_text()
-  # Extract text content from pages and concatenate
-  full_text = ""
-  for page in pages:
-    full_text += page.page_content
-  raw_text=remove_extra_spaces(full_text)
-  chunks=create_chunks(raw_text,text_splitter)
-  embeddings, text_contents=create_embeddings(chunks)
-  index=create_vector_store(embeddings)
+# Initialize session state variables
+if "document_processed" not in st.session_state:
+    st.session_state.document_processed = False
+if "index" not in st.session_state:
+    st.session_state.index = None
+if "text_contents" not in st.session_state:
+    st.session_state.text_contents = []
+
+if uploaded_doc and not st.session_state.document_processed:
+    with st.spinner("Processing document..."):
+        try:
+            # Save uploaded file temporarily
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+                tmp_file.write(uploaded_doc.getvalue())
+                tmp_file_path = tmp_file.name
+            
+            pages = document_loader(tmp_file_path)
+            text_splitter = split_text()
+            
+            # Extract text content from pages and concatenate
+            full_text = ""
+            for page in pages:
+                full_text += page.page_content
+            
+            raw_text = remove_extra_spaces(full_text)
+            chunks = create_chunks(raw_text, text_splitter)
+            embeddings, text_contents = create_embeddings(chunks)
+            index = create_vector_store(embeddings)
+          
+            # Store in session state
+            st.session_state.index = index
+            st.session_state.text_contents = text_contents
+            st.session_state.document_processed = True
+        
+            # Clean up temporary file
+            os.unlink(tmp_file_path)
+            
+            st.success("Document processed successfully!")
+            
+        except Exception as e:
+            st.error(f"Error processing document: {str(e)}")
 
 @tool
-def query_patient_records(user_query):
-  """Use this tool to search through the patient’s uploaded reports, genetic test results, or medical history stored in the vector database
-     For Example: “Does this patient have any genetic marker for CYP2D6 metabolism issues?"""
-  try:
-    context=retrieval(index,user_query,text_contents)
-    return context
-  except Exception as e:
-    return f"Search Error: ", str(e)
+def query_patient_records(user_query: str) -> str:
+    """Use this tool to search through the patient's uploaded reports, genetic test results, or medical history stored in the vector database
+     For Example: "Does this patient have any genetic marker for CYP2D6 metabolism issues?"""
+    try:
+        if st.session_state.index is not None and st.session_state.text_contents:
+            context = retrieval(st.session_state.index, user_query, st.session_state.text_contents)
+            return context
+        else:
+            return "No patient records have been uploaded yet. Please upload a document first."
+    except Exception as e:
+        return f"Search Error: {str(e)}"
 
 @st.cache_resource
 def initialize_agent():
@@ -119,6 +154,7 @@ if st.sidebar.button("Clear Conversation"):
     except Exception:
         pass
     st.rerun()
+
 
 
 
