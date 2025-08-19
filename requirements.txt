@@ -6,4 +6,5 @@ langchain_groq
 pypdf
 sentence_transformers
 faiss-cpu
+numpy
 streamlit
