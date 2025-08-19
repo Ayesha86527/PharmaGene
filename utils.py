@@ -9,6 +9,7 @@ import faiss
 import pypdf
 from langchain_groq import ChatGroq
 from langchain.tools import tool
+import numpy as np
 import uuid
 import streamlit as st
 
@@ -153,13 +154,13 @@ def create_embeddings(chunks):
 def create_vector_store(embeddings):
     d = embeddings.shape[1]
     index = faiss.IndexFlatL2(d)
-    index.add(embeddings)
+    index.add(embeddings.astype('float32'))
     return index
 
 def retrieval(index, user_prompt, text_contents):
     query_embedding = embedding_model.encode([user_prompt])
-    k = 5
-    distances, indices = index.search(query_embedding, k)
+    k = min(5, len(text_contents))
+    distances, indices = index.search(query_embedding.astype('float32'), k)
     retrieved_info = [text_contents[idx] for idx in indices[0]]
     context = "\n".join(retrieved_info)
     return context
@@ -214,6 +215,7 @@ Stop Condition:
     "content": user_input,
 }]
   return input_message
+
 
 
 
