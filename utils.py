@@ -10,7 +10,6 @@ import pypdf
 from langchain_groq import ChatGroq
 from langchain.tools import tool
 import uuid
-from streamlit_app import initialize_agent
 
 # Configuring API Keys
 
@@ -215,13 +214,7 @@ Stop Condition:
 }]
   return input_message
 
-agent_executor, memory = initialize_agent()
 
-def run_query(input_message,config):
-  for step in agent_executor.stream(
-    {"messages": input_message}, config, stream_mode="values"
-):
-    step["messages"][-1].pretty_print()
 
 
 
