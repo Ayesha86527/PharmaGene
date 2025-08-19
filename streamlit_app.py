@@ -75,7 +75,7 @@ def query_patient_records(user_query: str) -> str:
 def initialize_agent():
     memory = MemorySaver()
     model = ChatGroq(
-        model="llama-3.1-70b-versatile",
+        model="openai/gpt-oss-120b",
         temperature=0,
         max_tokens=3000,
         timeout=None,
@@ -167,6 +167,7 @@ if st.sidebar.button("Clear Conversation"):
     except Exception:
         pass
     st.rerun()
+
 
 
 
