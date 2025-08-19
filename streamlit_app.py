@@ -5,15 +5,11 @@ from langchain_groq import ChatGroq
 from langchain.tools import tool
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
-from dotenv import load_dotenv
-import os
-
-load_dotenv()
 
 # Configuring API Keys
 
-tavily_api_key = os.environ["TAVILY_API_KEY"]
-groq_api_key = os.environ["GROQ_API_KEY"]
+tavily_api_key = st.secrets["TAVILY_API_KEY"]
+groq_api_key = st.secrets["GROQ_API_KEY"]
 
 # Streamlit app
 import streamlit as st
@@ -115,3 +111,4 @@ if st.sidebar.button("Clear Conversation"):
     except Exception:
         pass
     st.rerun()
+
