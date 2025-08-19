@@ -1,20 +1,16 @@
 import streamlit as st
 import uuid
+import tempfile
+import os
 from utils import document_loader,split_text,remove_extra_spaces,create_chunks,create_embeddings,create_vector_store,retrieval,tavily_fact_based_search,tavily_clinical_guidelines_search,tavily_safety_data_search,chat_completion
 from langchain_groq import ChatGroq
 from langchain.tools import tool
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
-import tempfile
-import os
 
 # Configuring API Keys
-
 tavily_api_key = st.secrets["TAVILY_API_KEY"]
 groq_api_key = st.secrets["GROQ_API_KEY"]
-
-# Streamlit app
-import streamlit as st
 
 st.title("App")
 
@@ -48,12 +44,12 @@ if uploaded_doc and not st.session_state.document_processed:
             chunks = create_chunks(raw_text, text_splitter)
             embeddings, text_contents = create_embeddings(chunks)
             index = create_vector_store(embeddings)
-          
+            
             # Store in session state
             st.session_state.index = index
             st.session_state.text_contents = text_contents
             st.session_state.document_processed = True
-        
+            
             # Clean up temporary file
             os.unlink(tmp_file_path)
             
@@ -79,24 +75,26 @@ def query_patient_records(user_query: str) -> str:
 def initialize_agent():
     memory = MemorySaver()
     model = ChatGroq(
-        model="openai/gpt-oss-120b",
+        model="llama-3.1-70b-versatile",
         temperature=0,
         max_tokens=3000,
         timeout=None,
         max_retries=2,
         api_key=groq_api_key
     )
-    tools = [tavily_fact_based_search,tavily_clinical_guidelines_search,tavily_safety_data_search,query_patient_records]
+    tools = [tavily_fact_based_search, tavily_clinical_guidelines_search, tavily_safety_data_search, query_patient_records]
     agent_executor = create_react_agent(model, tools, checkpointer=memory)
     return agent_executor, memory
 
 agent_executor, memory = initialize_agent()
 
-def run_query(input_message,config):
-  for step in agent_executor.stream(
-    {"messages": input_message}, config, stream_mode="values"
-):
-    step["messages"][-1].pretty_print()
+def run_query(input_message, config):
+    try:
+        result = agent_executor.invoke({"messages": input_message}, config)
+        return result
+    except Exception as e:
+        st.error(f"Agent execution error: {str(e)}")
+        return {"messages": [{"content": f"Error: {str(e)}"}]}
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -116,7 +114,7 @@ if prompt := st.chat_input("Hey! How can I help you today?"):
     with st.chat_message("user"):
         st.markdown(prompt)
 
-# Process with agent
+    # Process with agent
     with st.chat_message("assistant"):
         with st.spinner("Generating Response..."):
             try:
@@ -127,13 +125,25 @@ if prompt := st.chat_input("Hey! How can I help you today?"):
                 input_messages = chat_completion(prompt)
 
                 # Invoking the agent
-                response = run_query(input_messages,config=config)
+                response = run_query(input_messages, config=config)
 
-                # Extracting the final response
-                if response and "messages" in response:
-                    response_content = response["messages"][-1].content
-                else:
-                    response_content = "I couldn't process your request. Please try again."
+                # Extracting the final response - more robust approach
+                response_content = "I couldn't process your request. Please try again."
+                
+                try:
+                    if response and "messages" in response and len(response["messages"]) > 0:
+                        final_message = response["messages"][-1]
+                        
+                        # Try different ways to extract content
+                        if hasattr(final_message, 'content'):
+                            response_content = final_message.content
+                        elif isinstance(final_message, dict):
+                            response_content = final_message.get('content', str(final_message))
+                        else:
+                            response_content = str(final_message)
+                            
+                except Exception as e:
+                    response_content = f"Error extracting response: {str(e)}"
 
             except Exception as e:
                 response_content = f"Something went wrong! Error Info: {str(e)}"
@@ -148,6 +158,9 @@ if prompt := st.chat_input("Hey! How can I help you today?"):
 # Button to clear conversation history
 if st.sidebar.button("Clear Conversation"):
     st.session_state.messages = []
+    st.session_state.document_processed = False
+    st.session_state.index = None
+    st.session_state.text_contents = []
     try:
         # Creating new thread ID for fresh conversation
         st.session_state.thread_id = str(uuid.uuid4())
