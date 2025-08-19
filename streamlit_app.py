@@ -1,6 +1,6 @@
 import streamlit as st
 import uuid
-from utils import document_loader,split_text,remove_extra_spaces,create_chunks,create_embeddings,create_vector_store,retrieval,tavily_fact_based_search,tavily_clinical_guidelines_search,tavily_safety_data_search,chat_completion,run_query
+from utils import document_loader,split_text,remove_extra_spaces,create_chunks,create_embeddings,create_vector_store,retrieval,tavily_fact_based_search,tavily_clinical_guidelines_search,tavily_safety_data_search,chat_completion
 from langchain_groq import ChatGroq
 from langchain.tools import tool
 from langgraph.checkpoint.memory import MemorySaver
@@ -119,5 +119,6 @@ if st.sidebar.button("Clear Conversation"):
     except Exception:
         pass
     st.rerun()
+
 
 
