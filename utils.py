@@ -9,17 +9,13 @@ import faiss
 import pypdf
 from langchain_groq import ChatGroq
 from langchain.tools import tool
-from dotenv import load_dotenv
-import os
 import uuid
 from streamlit_app import initialize_agent
 
-load_dotenv()
-
 # Configuring API Keys
 
-tavily_api_key = os.environ["TAVILY_API_KEY"]
-groq_api_key = os.environ["GROQ_API_KEY"]
+tavily_api_key = st.secrets["TAVILY_API_KEY"]
+groq_api_key = st.secrets["GROQ_API_KEY"]
 
 # Extraction function
 def extract_search_results(raw_results):
@@ -226,5 +222,6 @@ def run_query(input_message,config):
     {"messages": input_message}, config, stream_mode="values"
 ):
     step["messages"][-1].pretty_print()
+
 
 
