@@ -1,76 +1,260 @@
-import streamlit as st
-import uuid
-import tempfile
-import os
-from utils import document_loader,split_text,remove_extra_spaces,create_chunks,create_embeddings,create_vector_store,retrieval,tavily_fact_based_search,tavily_clinical_guidelines_search,tavily_safety_data_search,chat_completion
-from langchain_groq import ChatGroq
-from langchain.tools import tool
+# Import relevant functionality
+from langchain_tavily import TavilySearch
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
+from langchain_community.document_loaders import PyPDFLoader
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from sentence_transformers import SentenceTransformer
+import faiss
+import pypdf
+from langchain_groq import ChatGroq
+from langchain.tools import tool
+import streamlit as st
+from dotenv import load_dotenv
+import os
+import uuid
+
+load_dotenv()
 
 # Configuring API Keys
+
 tavily_api_key = st.secrets["TAVILY_API_KEY"]
 groq_api_key = st.secrets["GROQ_API_KEY"]
 
+SYSTEM_MESSAGE="""You are a helpful pharmacogenomics assistant. Your role is to assist doctors and clinicians in prescribing the right medications to patients
+based on their medical history, genetics, allergies, and conditions.
+
+You have access to the following tools. Each tool has a specific purpose, and you should only use the tool(s) that directly match the query:
+
+1. tavily_fact_based_search:
+   - Use ONLY for core pharmacogenomics knowledge such as drug–gene interactions, genetic markers, and fundamental concepts.
+
+2. tavily_clinical_guidelines_search:
+   - Use ONLY to retrieve clinical guidelines and official recommendations from trusted bodies like NCCN, WHO, or FDA.
+
+3. tavily_safety_data_search:
+   - Use ONLY to find real-world evidence, case studies, post-marketing safety data, and adverse drug reaction reports.
+
+4. query_patient_records:
+   - Use ONLY to search through the patient’s uploaded reports, genetic test results, or medical history stored in the vector database.
+
+Tool Usage Rules:
+- Select the tool(s) strictly based on the type of question.
+- If the query is about a patient’s specific data, check `query_patient_records` first.
+- If the query is about general pharmacogenomics knowledge, use `tavily_fact_based_search`.
+- If the query is about treatment standards or protocols, use `tavily_clinical_guidelines_search`.
+- If the query is about risks, safety, or real-world usage, use `tavily_safety_data_search`.
+- If multiple tools are clearly required, combine them in ONE step only. Never loop between tools.
+- **IMPORTANT:** When using a tool, ensure the arguments are provided as a valid JSON object.
+- If none of the tools match, respond:
+  "I’m sorry, but I couldn’t find relevant information for [drug/gene/symptom/etc.]."
+
+Output Guidelines:
+- Always give structured, concise responses.
+- Include source URLs from the tool output.
+- Do NOT speculate outside pharmacogenomics or patient safety context.
+- Do NOT re-query the same tool repeatedly for the same question.
+- Always provide the exact source url with the answer from where you have found the answer.
+- If the user asks the same question in a particular session which was asked before in the session that you do not need to use the tools again just return the
+answer from the session memory.
+
+Stop Condition:
+- Once you have gathered enough from the selected tool(s) to answer, STOP and return the result.
+"""
+
+
+
 st.title("App")
 
-uploaded_doc = st.file_uploader("Upload patient records", type=["pdf", "docx", "txt"])
+# Extraction function
+def extract_search_results(raw_results):
+    extracted_results = []
+    for item in raw_results:
+        # Combining key information
+        structured_query = f"URL: {item.get('url', '')}\nTitle: {item.get('title', '')}\nContent: {item.get('content', '')}\n---\n"
+        extracted_results.append(structured_query)
+    return '\n'.join(extracted_results)
 
-# Initialize session state variables
-if "document_processed" not in st.session_state:
-    st.session_state.document_processed = False
-if "index" not in st.session_state:
-    st.session_state.index = None
-if "text_contents" not in st.session_state:
-    st.session_state.text_contents = []
+# Tool 1
 
-if uploaded_doc and not st.session_state.document_processed:
-    with st.spinner("Processing document..."):
-        try:
-            # Save uploaded file temporarily
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-                tmp_file.write(uploaded_doc.getvalue())
-                tmp_file_path = tmp_file.name
-            
-            pages = document_loader(tmp_file_path)
-            text_splitter = split_text()
-            
-            # Extract text content from pages and concatenate
-            full_text = ""
-            for page in pages:
-                full_text += page.page_content
-            
-            raw_text = remove_extra_spaces(full_text)
-            chunks = create_chunks(raw_text, text_splitter)
-            embeddings, text_contents = create_embeddings(chunks)
-            index = create_vector_store(embeddings)
-            
-            # Store in session state
-            st.session_state.index = index
-            st.session_state.text_contents = text_contents
-            st.session_state.document_processed = True
-            
-            # Clean up temporary file
-            os.unlink(tmp_file_path)
-            
-            st.success("Document processed successfully!")
-            
-        except Exception as e:
-            st.error(f"Error processing document: {str(e)}")
+# Create the original search object
+fact_based_search = TavilySearch(
+    search_depth="basic",
+    max_results=1,
+    tavily_api_key=tavily_api_key,
+    include_domains=["clinpgx.org","cpicpgx.org/guidelines/","fda.gov/drugs/science-and-research-drugs/table-pharmacogenomic-biomarkers-drug-labeling"
+    "go.drugbank.com"],
+    include_raw_content=False,
+    include_images=False,
+    max_tokens=2000,
+    include_answer=False
+)
+
+@tool
+def tavily_fact_based_search(query: str) -> str:
+    """Use this tool for core pharmacogenomics knowledge such as drug–gene interactions, genetic markers, and fundamental concepts.
+       For Example: “How does CYP2C19 variation affect clopidogrel response?"""
+    try:
+        # Get raw results from Tavily
+        result = fact_based_search.invoke({"query": query})
+        raw_results = result.get('results', [])
+
+        # Apply your extraction function
+        extracted_data = extract_search_results(raw_results)
+        return extracted_data
+
+    except Exception as e:
+        return f"Search error: {str(e)}"
+    
+
+# Tool 2
+
+# Create the original search object
+clinical_guidelines_search = TavilySearch(
+    search_depth="basic",
+    max_results=1,
+    tavily_api_key=tavily_api_key,
+    include_domains=["pubmed.ncbi.nlm.nih.gov","clinicaltrials.gov","nccn.org/guidelines/",
+                     "who.int/groups/expert-committee-on-selection-and-use-of-essential-medicines/essential-medicines-lists"],
+    include_raw_content=False,
+    include_images=False,
+    max_tokens=2000,
+    include_answer=False
+)
+
+@tool
+def tavily_clinical_guidelines_search(query: str) -> str:
+    """Use this tool to retrieve clinical guidelines and official recommendations from trusted bodies like NCCN, WHO, ClinicalTrials.gov
+      For Example: “What are the pharmacogenomic guidelines for warfarin dosing?"""
+    try:
+        # Get raw results from Tavily
+        result = clinical_guidelines_search.invoke({"query": query})
+        raw_results = result.get('results', [])
+
+        # Apply your extraction function
+        extracted_data = extract_search_results(raw_results)
+        return extracted_data
+
+    except Exception as e:
+        return f"Search error: {str(e)}"
+
+# Tool 3
+
+# Create the original search object
+safety_data_search = TavilySearch(
+    search_depth="basic",
+    max_results=1,
+    tavily_api_key=tavily_api_key,
+    include_domains=["fda.gov/drugs/fdas-adverse-event-reporting-system-faers/fda-adverse-event-reporting-system-faers-public-dashboard","medlineplus.gov/"],
+    include_raw_content=False,
+    include_images=False,
+    max_tokens=2000,
+    include_answer=False
+)
+
+@tool
+def tavily_safety_data_search(query: str) -> str:
+    """Use this tool to find real-world evidence, case studies, post-marketing safety data, and adverse drug reaction reports.
+      For Example: “Are there any safety alerts about carbamazepine in Asian populations?"""
+    try:
+        # Get raw results from Tavily
+        result = safety_data_search.invoke({"query": query})
+        raw_results = result.get('results', [])
+
+        # Apply your extraction function
+        extracted_data = extract_search_results(raw_results)
+        return extracted_data
+
+    except Exception as e:
+        return f"Search error: {str(e)}"
+
+
+# Tool 4
+
+embedding_model = SentenceTransformer('paraphrase-MiniLM-L6-v2')
+
+def document_loader(pdf_filename):
+    loader = PyPDFLoader(pdf_filename)
+    pages = loader.load_and_split()
+    return pages
+
+def split_text():
+  text_splitter = RecursiveCharacterTextSplitter(
+    chunk_size=500,
+    chunk_overlap=100,
+    length_function=len,
+)
+  return text_splitter
+
+def create_chunks(text,text_splitter):
+    texts = text_splitter.create_documents([text])
+    return texts
+
+def remove_extra_spaces(text):
+    raw_text=' '.join(text.split())
+    return raw_text
+
+def create_embeddings(chunks):
+    text_contents = [doc.page_content for doc in chunks]
+    embeddings = embedding_model.encode(text_contents)
+    return embeddings, text_contents
+
+def create_vector_store(embeddings):
+    d = embeddings.shape[1]
+    index = faiss.IndexFlatL2(d)
+    index.add(embeddings)
+    return index
+
+def retrieval(index, user_prompt, text_contents):
+    query_embedding = embedding_model.encode([user_prompt])
+    k = 5
+    distances, indices = index.search(query_embedding, k)
+    retrieved_info = [text_contents[idx] for idx in indices[0]]
+    context = "\n".join(retrieved_info)
+    return context
+
+uploaded_file=st.file_uploader("Upload the medical reports", type=["pdf", "docx", "txt"])
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+# Initialize thread_id for this session (important for MemorySaver)
+if "thread_id" not in st.session_state:
+    st.session_state.thread_id = str(uuid.uuid4())
+
+# Show chat history
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+
+# Chat input
+if prompt := st.chat_input("Hey there! Upload your document and ask me anything about it."):
+
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    if uploaded_file:
+        pages = document_loader(uploaded_file)
+        text_splitter = split_text()
+        chunks = create_chunks(pages, text_splitter)
+        embeddings, text_contents = create_embeddings(chunks)
+        vector_store = create_vector_store(embeddings)
+        context = retrieval(vector_store, prompt, text_contents)
 
 @tool
 def query_patient_records(user_query: str) -> str:
     """Use this tool to search through the patient's uploaded reports, genetic test results, or medical history stored in the vector database
-     For Example: "Does this patient have any genetic marker for CYP2D6 metabolism issues?"""
+       For Example: "Does this patient have any genetic marker for CYP2D6 metabolism issues?"""
     try:
-        if st.session_state.index is not None and st.session_state.text_contents:
-            context = retrieval(st.session_state.index, user_query, st.session_state.text_contents)
-            return context
-        else:
-            return "No patient records have been uploaded yet. Please upload a document first."
+        if vector_store is None or text_contents is None:
+            return "Error: Vector store not initialized. Please call initialize_vector_store() first."
+        
+        context = retrieval(vector_store, user_query, text_contents)
+        return context
     except Exception as e:
         return f"Search Error: {str(e)}"
-
+    
 @st.cache_resource
 def initialize_agent():
     memory = MemorySaver()
@@ -82,87 +266,53 @@ def initialize_agent():
         max_retries=2,
         api_key=groq_api_key
     )
-    tools = [tavily_fact_based_search, tavily_clinical_guidelines_search, tavily_safety_data_search, query_patient_records]
+    tools = [tavily_fact_based_search,tavily_clinical_guidelines_search,tavily_safety_data_search,query_patient_records]
     agent_executor = create_react_agent(model, tools, checkpointer=memory)
     return agent_executor, memory
 
 agent_executor, memory = initialize_agent()
 
-def run_query(input_message, config):
-    try:
-        result = agent_executor.invoke({"messages": input_message}, config)
-        return result
-    except Exception as e:
-        st.error(f"Agent execution error: {str(e)}")
-        return {"messages": [{"content": f"Error: {str(e)}"}]}
-
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
-if "thread_id" not in st.session_state:
-    st.session_state.thread_id = str(uuid.uuid4())
-
-# Show chat history
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
-
-# Chat Input
-if prompt := st.chat_input("Hey! How can I help you today?"):
-    # Adding user message to session state and display it
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
-
     # Process with agent
-    with st.chat_message("assistant"):
-        with st.spinner("Generating Response..."):
+if prompt:  
+  with st.chat_message("assistant"):
+        with st.spinner("Searching for properties..."):
             try:
-                # Configuring for your agent
+                # Configure for your agent
                 config = {"configurable": {"thread_id": st.session_state.thread_id}}
-
-                # Creating the input for the agent
-                input_messages = chat_completion(prompt)
-
-                # Invoking the agent
-                response = run_query(input_messages, config=config)
-
-                # Extracting the final response - more robust approach
-                response_content = "I couldn't process your request. Please try again."
                 
-                try:
-                    if response and "messages" in response and len(response["messages"]) > 0:
-                        final_message = response["messages"][-1]
-                        
-                        # Try different ways to extract content
-                        if hasattr(final_message, 'content'):
-                            response_content = final_message.content
-                        elif isinstance(final_message, dict):
-                            response_content = final_message.get('content', str(final_message))
-                        else:
-                            response_content = str(final_message)
-                            
-                except Exception as e:
-                    response_content = f"Error extracting response: {str(e)}"
-
+                # Create the input for the agent
+                input_messages = [
+                    {"role": "system", "content": SYSTEM_MESSAGE},
+                    {"role": "user", "content": prompt}
+                ]
+                
+                # Invoke the agent
+                response = agent_executor.invoke(
+                    {"messages": input_messages}, 
+                    config=config
+                )
+                
+                # Extract the final response
+                if response and "messages" in response:
+                    response_content = response["messages"][-1].content
+                else:
+                    response_content = "I couldn't process your request. Please try again."
+                
             except Exception as e:
                 response_content = f"Something went wrong! Error Info: {str(e)}"
                 st.error(response_content)
-
-            # Displaying the response
+            
+            # Display the response
             st.markdown(response_content)
-
-            # Adding assistant response to session state
+            
+            # Add assistant response to session state
             st.session_state.messages.append({"role": "assistant", "content": response_content})
 
-# Button to clear conversation history
+# Add a button to clear conversation history
 if st.sidebar.button("Clear Conversation"):
     st.session_state.messages = []
-    st.session_state.document_processed = False
-    st.session_state.index = None
-    st.session_state.text_contents = []
     try:
-        # Creating new thread ID for fresh conversation
+        # Create new thread ID for fresh conversation
         st.session_state.thread_id = str(uuid.uuid4())
     except Exception:
         pass
