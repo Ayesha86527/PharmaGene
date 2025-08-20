@@ -22,8 +22,7 @@ load_dotenv()
 tavily_api_key = st.secrets["TAVILY_API_KEY"]
 groq_api_key = st.secrets["GROQ_API_KEY"]
 
-SYSTEM_MESSAGE="""
-You are a helpful pharmacogenomics assistant. Your role is to assist doctors and clinicians in prescribing the right medications to patients
+SYSTEM_MESSAGE="""You are a helpful pharmacogenomics assistant. Your role is to assist doctors and clinicians in prescribing the right medications to patients
 based on their medical history, genetics, allergies, and conditions.
 
 You have access to the following tools. Each tool has a specific purpose, and you should only use the tool(s) that directly match the query:
@@ -61,7 +60,10 @@ Output Guidelines:
 answer from the session memory.
 
 Stop Condition:
-- Once you have gathered enough from the selected tool(s) to answer, STOP and return the result."""
+- Once you have gathered enough from the selected tool(s) to answer, STOP and return the result.
+"""
+
+
 
 st.title("App")
 
@@ -212,19 +214,23 @@ def retrieval(index, user_prompt, text_contents):
     context = "\n".join(retrieved_info)
     return context
 
-@tool
-def query_patient_record(user_query: str) -> str:
-    """Use this tool to search through the patient's uploaded reports, genetic test results, or medical history stored in the vector database
-       For Example: "Does this patient have any genetic marker for CYP2D6 metabolism issues?"""
-    try:
-        # Check if vector store exists in session state
-        if "vector_store" not in st.session_state or "text_contents" not in st.session_state:
-            return "Error: No document uploaded. Please upload a document first."
-        
-        context = retrieval(st.session_state.vector_store, user_query, st.session_state.text_contents)
-        return context
-    except Exception as e:
-        return f"Search Error: {str(e)}"
+def create_query_patient_record_tool():
+    """Create the patient record query tool with access to current session state"""
+    @tool
+    def query_patient_record(user_query: str) -> str:
+        """Use this tool to search through the patient's uploaded reports, genetic test results, or medical history stored in the vector database
+           For Example: "Does this patient have any genetic marker for CYP2D6 metabolism issues?"""
+        try:
+            # Check if vector store exists in session state
+            if "vector_store" not in st.session_state or "text_contents" not in st.session_state:
+                return "Error: No document uploaded. Please upload a document first."
+            
+            context = retrieval(st.session_state.vector_store, user_query, st.session_state.text_contents)
+            return context
+        except Exception as e:
+            return f"Search Error: {str(e)}"
+    
+    return query_patient_record
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -297,7 +303,11 @@ def get_agent_executor():
         max_retries=2,
         api_key=groq_api_key
     )
-    tools = [tavily_fact_based_search, tavily_clinical_guidelines_search, tavily_safety_data_search, query_patient_record]
+    
+    # Create the patient record tool dynamically to ensure it has access to current session state
+    patient_record_tool = create_query_patient_record_tool()
+    
+    tools = [tavily_fact_based_search, tavily_clinical_guidelines_search, tavily_safety_data_search, patient_record_tool]
     agent_executor = create_react_agent(model, tools, checkpointer=st.session_state.memory)
     return agent_executor
 
@@ -354,6 +364,5 @@ if st.sidebar.button("Clear Conversation"):
     except Exception:
         pass
     st.rerun()
-
 
 
