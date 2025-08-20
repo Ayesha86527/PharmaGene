@@ -214,6 +214,17 @@ def retrieval(index, user_prompt, text_contents):
     context = "\n".join(retrieved_info)
     return context
 
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+# Initialize thread_id for this session (important for MemorySaver)
+if "thread_id" not in st.session_state:
+    st.session_state.thread_id = str(uuid.uuid4())
+
+# Show chat history
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
 
 uploaded_file = st.file_uploader("Upload the medical reports", type=["pdf", "docx", "txt"])
 
@@ -273,18 +284,6 @@ def query_patient_record(user_query: str) -> str:
         return context
     except Exception as e:
         return f"Search Error: {str(e)}"
-
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
-# Initialize thread_id for this session (important for MemorySaver)
-if "thread_id" not in st.session_state:
-    st.session_state.thread_id = str(uuid.uuid4())
-
-# Show chat history
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
 
 @st.cache_resource
 def initialize_agent():
@@ -353,6 +352,7 @@ if st.sidebar.button("Clear Conversation"):
     except Exception:
         pass
     st.rerun()
+
 
 
 
