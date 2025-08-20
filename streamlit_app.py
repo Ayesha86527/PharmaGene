@@ -22,7 +22,8 @@ load_dotenv()
 tavily_api_key = st.secrets["TAVILY_API_KEY"]
 groq_api_key = st.secrets["GROQ_API_KEY"]
 
-SYSTEM_MESSAGE="""You are a helpful pharmacogenomics assistant. Your role is to assist doctors and clinicians in prescribing the right medications to patients
+SYSTEM_MESSAGE="""
+You are a helpful pharmacogenomics assistant. Your role is to assist doctors and clinicians in prescribing the right medications to patients
 based on their medical history, genetics, allergies, and conditions.
 
 You have access to the following tools. Each tool has a specific purpose, and you should only use the tool(s) that directly match the query:
@@ -60,10 +61,7 @@ Output Guidelines:
 answer from the session memory.
 
 Stop Condition:
-- Once you have gathered enough from the selected tool(s) to answer, STOP and return the result.
-"""
-
-
+- Once you have gathered enough from the selected tool(s) to answer, STOP and return the result."""
 
 st.title("App")
 
@@ -94,7 +92,7 @@ fact_based_search = TavilySearch(
 @tool
 def tavily_fact_based_search(query: str) -> str:
     """Use this tool for core pharmacogenomics knowledge such as drug–gene interactions, genetic markers, and fundamental concepts.
-       For Example: “How does CYP2C19 variation affect clopidogrel response?"""
+       For Example: "How does CYP2C19 variation affect clopidogrel response?"""
     try:
         # Get raw results from Tavily
         result = fact_based_search.invoke({"query": query})
@@ -126,7 +124,7 @@ clinical_guidelines_search = TavilySearch(
 @tool
 def tavily_clinical_guidelines_search(query: str) -> str:
     """Use this tool to retrieve clinical guidelines and official recommendations from trusted bodies like NCCN, WHO, ClinicalTrials.gov
-      For Example: “What are the pharmacogenomic guidelines for warfarin dosing?"""
+      For Example: "What are the pharmacogenomic guidelines for warfarin dosing?"""
     try:
         # Get raw results from Tavily
         result = clinical_guidelines_search.invoke({"query": query})
@@ -156,7 +154,7 @@ safety_data_search = TavilySearch(
 @tool
 def tavily_safety_data_search(query: str) -> str:
     """Use this tool to find real-world evidence, case studies, post-marketing safety data, and adverse drug reaction reports.
-      For Example: “Are there any safety alerts about carbamazepine in Asian populations?"""
+      For Example: "Are there any safety alerts about carbamazepine in Asian populations?"""
     try:
         # Get raw results from Tavily
         result = safety_data_search.invoke({"query": query})
@@ -214,12 +212,30 @@ def retrieval(index, user_prompt, text_contents):
     context = "\n".join(retrieved_info)
     return context
 
+@tool
+def query_patient_record(user_query: str) -> str:
+    """Use this tool to search through the patient's uploaded reports, genetic test results, or medical history stored in the vector database
+       For Example: "Does this patient have any genetic marker for CYP2D6 metabolism issues?"""
+    try:
+        # Check if vector store exists in session state
+        if "vector_store" not in st.session_state or "text_contents" not in st.session_state:
+            return "Error: No document uploaded. Please upload a document first."
+        
+        context = retrieval(st.session_state.vector_store, user_query, st.session_state.text_contents)
+        return context
+    except Exception as e:
+        return f"Search Error: {str(e)}"
+
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
 # Initialize thread_id for this session (important for MemorySaver)
 if "thread_id" not in st.session_state:
     st.session_state.thread_id = str(uuid.uuid4())
+
+# Initialize memory (but not the agent yet)
+if "memory" not in st.session_state:
+    st.session_state.memory = MemorySaver()
 
 # Show chat history
 for msg in st.session_state.messages:
@@ -271,23 +287,8 @@ if uploaded_file is not None:
         if 'tmp_file_path' in locals() and os.path.exists(tmp_file_path):
             os.unlink(tmp_file_path)
 
-@tool
-def query_patient_record(user_query: str) -> str:
-    """Use this tool to search through the patient's uploaded reports, genetic test results, or medical history stored in the vector database
-       For Example: "Does this patient have any genetic marker for CYP2D6 metabolism issues?"""
-    try:
-        # Check if vector store exists in session state
-        if "vector_store" not in st.session_state or "text_contents" not in st.session_state:
-            return "Error: No document uploaded. Please upload a document first."
-        
-        context = retrieval(st.session_state.vector_store, user_query, st.session_state.text_contents)
-        return context
-    except Exception as e:
-        return f"Search Error: {str(e)}"
-
-@st.cache_resource
-def initialize_agent():
-    memory = MemorySaver()
+def get_agent_executor():
+    """Get agent executor - creates new one each time to ensure tools have access to current session state"""
     model = ChatGroq(
         model="openai/gpt-oss-120b",
         temperature=0,
@@ -296,11 +297,9 @@ def initialize_agent():
         max_retries=2,
         api_key=groq_api_key
     )
-    tools = [tavily_fact_based_search,tavily_clinical_guidelines_search,tavily_safety_data_search,query_patient_record]
-    agent_executor = create_react_agent(model, tools, checkpointer=memory)
-    return agent_executor, memory
-
-agent_executor, memory = initialize_agent()
+    tools = [tavily_fact_based_search, tavily_clinical_guidelines_search, tavily_safety_data_search, query_patient_record]
+    agent_executor = create_react_agent(model, tools, checkpointer=st.session_state.memory)
+    return agent_executor
 
 # Chat input
 if prompt := st.chat_input("Hey there! Upload your document and ask me anything about it."):
@@ -312,6 +311,9 @@ if prompt := st.chat_input("Hey there! Upload your document and ask me anything 
     with st.chat_message("assistant"):
         with st.spinner("Searching for properties..."):
             try:
+                # Get agent executor (not cached, so tools have access to current session state)
+                agent_executor = get_agent_executor()
+                
                 # Configure for your agent
                 config = {"configurable": {"thread_id": st.session_state.thread_id}}
                 
@@ -352,10 +354,6 @@ if st.sidebar.button("Clear Conversation"):
     except Exception:
         pass
     st.rerun()
-
-
-
-
 
 
 
