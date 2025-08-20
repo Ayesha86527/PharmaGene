@@ -11,6 +11,7 @@ from langchain_groq import ChatGroq
 from langchain.tools import tool
 import streamlit as st
 from dotenv import load_dotenv
+import tempfile
 import os
 import uuid
 
@@ -228,27 +229,50 @@ def query_patient_record(user_query: str) -> str:
         return f"Search Error: {str(e)}"
 
 
-uploaded_file=st.file_uploader("Upload the medical reports", type=["pdf", "docx", "txt"])
+uploaded_file = st.file_uploader("Upload the medical reports", type=["pdf", "docx", "txt"])
 
-# Process uploaded file and store in session state
-if uploaded_file:
+if uploaded_file is not None:
     try:
-        pages = document_loader(uploaded_file)
+        # Get the correct file extension
+        file_extension = os.path.splitext(uploaded_file.name)[1]
+        
+        # Create a temporary file with the correct extension
+        with tempfile.NamedTemporaryFile(
+            delete=False, 
+            suffix=file_extension,  # Use actual file extension, not hardcoded .pdf
+            prefix=uploaded_file.name.split('.')[0] + '_'
+        ) as tmp_file:
+            # Write the uploaded file content to temp file
+            tmp_file.write(uploaded_file.getvalue())
+            tmp_file_path = tmp_file.name
+        
+        # Process the document
+        pages = document_loader(tmp_file_path)
         text_splitter = split_text()
-        # Fixed: extract text from pages properly
+        
+        # Extract text from pages
         all_text = ""
         for page in pages:
             all_text += page.page_content + "\n"
+        
         clean_text = remove_extra_spaces(all_text)
         chunks = create_chunks(clean_text, text_splitter)
         embeddings, text_contents = create_embeddings(chunks)
         vector_store = create_vector_store(embeddings)
+        
         # Store in session state for tool access
         st.session_state.vector_store = vector_store
         st.session_state.text_contents = text_contents
+        
         st.success("Document processed successfully!")
+        
     except Exception as e:
         st.error(f"Error processing document: {str(e)}")
+    
+    finally:
+        # Clean up the temporary file
+        if 'tmp_file_path' in locals() and os.path.exists(tmp_file_path):
+            os.unlink(tmp_file_path)
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -329,6 +353,8 @@ if st.sidebar.button("Clear Conversation"):
     except Exception:
         pass
     st.rerun()
+
+
 
 
 
