@@ -213,7 +213,42 @@ def retrieval(index, user_prompt, text_contents):
     context = "\n".join(retrieved_info)
     return context
 
+@tool
+def query_patient_record(user_query: str) -> str:
+    """Use this tool to search through the patient's uploaded reports, genetic test results, or medical history stored in the vector database
+       For Example: "Does this patient have any genetic marker for CYP2D6 metabolism issues?"""
+    try:
+        # Check if vector store exists in session state
+        if "vector_store" not in st.session_state or "text_contents" not in st.session_state:
+            return "Error: No document uploaded. Please upload a document first."
+        
+        context = retrieval(st.session_state.vector_store, user_query, st.session_state.text_contents)
+        return context
+    except Exception as e:
+        return f"Search Error: {str(e)}"
+
+
 uploaded_file=st.file_uploader("Upload the medical reports", type=["pdf", "docx", "txt"])
+
+# Process uploaded file and store in session state
+if uploaded_file:
+    try:
+        pages = document_loader(uploaded_file)
+        text_splitter = split_text()
+        # Fixed: extract text from pages properly
+        all_text = ""
+        for page in pages:
+            all_text += page.page_content + "\n"
+        clean_text = remove_extra_spaces(all_text)
+        chunks = create_chunks(clean_text, text_splitter)
+        embeddings, text_contents = create_embeddings(chunks)
+        vector_store = create_vector_store(embeddings)
+        # Store in session state for tool access
+        st.session_state.vector_store = vector_store
+        st.session_state.text_contents = text_contents
+        st.success("Document processed successfully!")
+    except Exception as e:
+        st.error(f"Error processing document: {str(e)}")
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -227,34 +262,6 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# Chat input
-if prompt := st.chat_input("Hey there! Upload your document and ask me anything about it."):
-
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
-
-    if uploaded_file:
-        pages = document_loader(uploaded_file)
-        text_splitter = split_text()
-        chunks = create_chunks(pages, text_splitter)
-        embeddings, text_contents = create_embeddings(chunks)
-        vector_store = create_vector_store(embeddings)
-        context = retrieval(vector_store, prompt, text_contents)
-
-@tool
-def query_patient_records(user_query: str) -> str:
-    """Use this tool to search through the patient's uploaded reports, genetic test results, or medical history stored in the vector database
-       For Example: "Does this patient have any genetic marker for CYP2D6 metabolism issues?"""
-    try:
-        if vector_store is None or text_contents is None:
-            return "Error: Vector store not initialized. Please call initialize_vector_store() first."
-        
-        context = retrieval(vector_store, user_query, text_contents)
-        return context
-    except Exception as e:
-        return f"Search Error: {str(e)}"
-    
 @st.cache_resource
 def initialize_agent():
     memory = MemorySaver()
@@ -266,15 +273,20 @@ def initialize_agent():
         max_retries=2,
         api_key=groq_api_key
     )
-    tools = [tavily_fact_based_search,tavily_clinical_guidelines_search,tavily_safety_data_search,query_patient_records]
+    tools = [tavily_fact_based_search,tavily_clinical_guidelines_search,tavily_safety_data_search,query_patient_record]
     agent_executor = create_react_agent(model, tools, checkpointer=memory)
     return agent_executor, memory
 
 agent_executor, memory = initialize_agent()
 
-    # Process with agent
-if prompt:  
-  with st.chat_message("assistant"):
+# Chat input
+if prompt := st.chat_input("Hey there! Upload your document and ask me anything about it."):
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    # Process with agent - Fixed indentation
+    with st.chat_message("assistant"):
         with st.spinner("Searching for properties..."):
             try:
                 # Configure for your agent
@@ -317,6 +329,9 @@ if st.sidebar.button("Clear Conversation"):
     except Exception:
         pass
     st.rerun()
+
+
+
 
 
 
