@@ -214,20 +214,6 @@ def retrieval(index, user_prompt, text_contents):
     context = "\n".join(retrieved_info)
     return context
 
-@tool
-def query_patient_record(user_query: str) -> str:
-    """Use this tool to search through the patient's uploaded reports, genetic test results, or medical history stored in the vector database
-       For Example: "Does this patient have any genetic marker for CYP2D6 metabolism issues?"""
-    try:
-        # Check if vector store exists in session state
-        if "vector_store" not in st.session_state or "text_contents" not in st.session_state:
-            return "Error: No document uploaded. Please upload a document first."
-        
-        context = retrieval(st.session_state.vector_store, user_query, st.session_state.text_contents)
-        return context
-    except Exception as e:
-        return f"Search Error: {str(e)}"
-
 
 uploaded_file = st.file_uploader("Upload the medical reports", type=["pdf", "docx", "txt"])
 
@@ -273,6 +259,20 @@ if uploaded_file is not None:
         # Clean up the temporary file
         if 'tmp_file_path' in locals() and os.path.exists(tmp_file_path):
             os.unlink(tmp_file_path)
+
+@tool
+def query_patient_record(user_query: str) -> str:
+    """Use this tool to search through the patient's uploaded reports, genetic test results, or medical history stored in the vector database
+       For Example: "Does this patient have any genetic marker for CYP2D6 metabolism issues?"""
+    try:
+        # Check if vector store exists in session state
+        if "vector_store" not in st.session_state or "text_contents" not in st.session_state:
+            return "Error: No document uploaded. Please upload a document first."
+        
+        context = retrieval(st.session_state.vector_store, user_query, st.session_state.text_contents)
+        return context
+    except Exception as e:
+        return f"Search Error: {str(e)}"
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -353,10 +353,6 @@ if st.sidebar.button("Clear Conversation"):
     except Exception:
         pass
     st.rerun()
-
-
-
-
 
 
 
