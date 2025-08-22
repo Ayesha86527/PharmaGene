@@ -212,6 +212,17 @@ def retrieval(index, user_prompt, text_contents):
     retrieved_info = [text_contents[idx] for idx in indices[0]]
     context = "\n".join(retrieved_info)
     return context
+
+# Functions to manage storage with session key
+def set_current_session(session_key):
+    """Set the current session key - call this from streamlit_app.py"""
+    global CURRENT_SESSION_KEY
+    CURRENT_SESSION_KEY = session_key
+
+def get_current_session():
+    """Get the current session key"""
+    return globals().get('CURRENT_SESSION_KEY', 'default')
+
 @tool
 def load_patient_records(pdf_path: str) -> str:
     """Use this tool to load the patient's medical records and create vector database to store them as embeddings for retrieval"""
@@ -225,23 +236,28 @@ def load_patient_records(pdf_path: str) -> str:
         chunks = create_chunks(full_text, text_splitter)
         embeddings, text_contents = create_embeddings(chunks)
         
-        # Store in session state instead of global variables
-        st.session_state.vector_index = create_vector_store(embeddings)
-        st.session_state.document_contents = text_contents
+        # Store in global dict with current session key
+        session_key = get_current_session()
+        VECTOR_STORAGE[session_key] = {
+            "vector_index": create_vector_store(embeddings),
+            "document_contents": text_contents
+        }
         
-        return f"Patient records loaded successfully from: {pdf_path}"
+        return f"Patient records loaded successfully. Session: {session_key}"
     except Exception as e:
         return f"Error loading patient records: {str(e)}"
 
 @tool
 def search_patient_records(query: str) -> str:
-    """Use this tool to search through the patient records."""
-    # Access from session state instead of global variables
-    if st.session_state.vector_index is None or st.session_state.document_contents is None:
+     """Use this tool to search through the patient records."""
+    session_key = get_current_session()
+    
+    if session_key not in VECTOR_STORAGE:
         return "No patient records loaded. Please upload and load patient records first."
     
     try:
-        context = retrieval(st.session_state.vector_index, query, st.session_state.document_contents)
+        storage = VECTOR_STORAGE[session_key]
+        context = retrieval(storage["vector_index"], query, storage["document_contents"])
         return f"Found information from patient records:\n{context}"
     except Exception as e:
         return f"Error searching patient records: {str(e)}"
