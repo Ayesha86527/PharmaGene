@@ -27,6 +27,10 @@ if "thread_id" not in st.session_state:
 if "memory" not in st.session_state:
     st.session_state.memory = MemorySaver()
 
+# Initialize document processing flags
+if "document_processed" not in st.session_state:
+    st.session_state.document_processed = False
+
 # Show chat history
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
@@ -66,11 +70,13 @@ if uploaded_file is not None:
         # Store in session state for tool access
         st.session_state.vector_store = vector_store
         st.session_state.text_contents = text_contents
+        st.session_state.document_processed = True
         
         st.success("Document processed successfully!")
         
     except Exception as e:
         st.error(f"Error processing document: {str(e)}")
+        st.session_state.document_processed = False
     
     finally:
         # Clean up the temporary file
@@ -94,49 +100,53 @@ def get_agent_executor():
     agent_executor = create_react_agent(model, tools, checkpointer=st.session_state.memory)
     return agent_executor
 
-# Chat input
-if prompt := st.chat_input("Hey there! Upload your document and ask me anything about it."):
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
+# Chat input - FIXED: Remove the specific prompt condition
+if prompt := st.chat_input("Ask me anything about the medical records..."):
+    # Check if document is uploaded and processed
+    if not st.session_state.get('document_processed', False):
+        st.warning("Please upload and process a medical document first!")
+    else:
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
 
-    # Process with agent - Fixed indentation
-    with st.chat_message("assistant"):
-        with st.spinner("Searching for properties..."):
-            try:
-                # Get agent executor (not cached, so tools have access to current session state)
-                agent_executor = get_agent_executor()
+        # Process with agent
+        with st.chat_message("assistant"):
+            with st.spinner("Generating Response..."):
+                try:
+                    # Get agent executor (not cached, so tools have access to current session state)
+                    agent_executor = get_agent_executor()
+                    
+                    # Configure for your agent
+                    config = {"configurable": {"thread_id": st.session_state.thread_id}}
+                    
+                    # Create the input for the agent
+                    input_messages = [
+                        {"role": "system", "content": SYSTEM_MESSAGE},
+                        {"role": "user", "content": prompt}
+                    ]
+                    
+                    # Invoke the agent
+                    response = agent_executor.invoke(
+                        {"messages": input_messages}, 
+                        config=config
+                    )
+                    
+                    # Extract the final response
+                    if response and "messages" in response:
+                        response_content = response["messages"][-1].content
+                    else:
+                        response_content = "I couldn't process your request. Please try again."
+                    
+                except Exception as e:
+                    response_content = f"Something went wrong! Error Info: {str(e)}"
+                    st.error(response_content)
                 
-                # Configure for your agent
-                config = {"configurable": {"thread_id": st.session_state.thread_id}}
+                # Display the response
+                st.markdown(response_content)
                 
-                # Create the input for the agent
-                input_messages = [
-                    {"role": "system", "content": SYSTEM_MESSAGE},
-                    {"role": "user", "content": prompt}
-                ]
-                
-                # Invoke the agent
-                response = agent_executor.invoke(
-                    {"messages": input_messages}, 
-                    config=config
-                )
-                
-                # Extract the final response
-                if response and "messages" in response:
-                    response_content = response["messages"][-1].content
-                else:
-                    response_content = "I couldn't process your request. Please try again."
-                
-            except Exception as e:
-                response_content = f"Something went wrong! Error Info: {str(e)}"
-                st.error(response_content)
-            
-            # Display the response
-            st.markdown(response_content)
-            
-            # Add assistant response to session state
-            st.session_state.messages.append({"role": "assistant", "content": response_content})
+                # Add assistant response to session state
+                st.session_state.messages.append({"role": "assistant", "content": response_content})
 
 # Add a button to clear conversation history
 if st.sidebar.button("Clear Conversation"):
@@ -147,4 +157,3 @@ if st.sidebar.button("Clear Conversation"):
     except Exception:
         pass
     st.rerun()
-
