@@ -35,12 +35,16 @@ You have access to the following tools. Each tool has a specific purpose, and yo
 3. tavily_safety_data_search:
    - Use ONLY to find real-world evidence, case studies, post-marketing safety data, and adverse drug reaction reports.
 
-4. query_patient_records:
+4. search_patient_records:
    - Use ONLY to search through the patient’s uploaded reports, genetic test results, or medical history stored in the vector database.
+
+5. load_patient_records:
+   - Use ONLY once per session to load the medical records and embed them in the vector database. So that you can use search_patient_record tool
+   to search through patient's medical records without the need of embedding records again and again.
 
 Tool Usage Rules:
 - Select the tool(s) strictly based on the type of question.
-- If the query is about a patient’s specific data, check `query_patient_records` first.
+- If the query is about a patient’s specific data, check `search_patient_records` first.
 - If the query is about general pharmacogenomics knowledge, use `tavily_fact_based_search`.
 - If the query is about treatment standards or protocols, use `tavily_clinical_guidelines_search`.
 - If the query is about risks, safety, or real-world usage, use `tavily_safety_data_search`.
@@ -204,46 +208,46 @@ def create_vector_store(embeddings):
 def retrieval(index, user_prompt, text_contents):
     query_embedding = embedding_model.encode([user_prompt])
     k = 5
-    distances, indices = index.search(query_embedding, k)
+    indices = index.search(query_embedding, k)
     retrieved_info = [text_contents[idx] for idx in indices[0]]
     context = "\n".join(retrieved_info)
     return context
 
-def create_query_patient_record_tool():
-    @tool
-    def query_patient_record(user_query: str) -> str:
-        """Use this tool to search through the patient's uploaded reports, genetic test results, or medical history stored in the vector database
-           For Example: "Does this patient have any genetic marker for CYP2D6 metabolism issues?"""
-        try:
-            # Check if vector store exists in session state
-            if "vector_store" not in st.session_state:
-                return "Error: No vector store found. Please upload and process a document first."
-            
-            if "text_contents" not in st.session_state:
-                return "Error: No text contents found. Please upload and process a document first."
-            
-            if not st.session_state.get('document_processed', False):
-                return "Error: Document not properly processed. Please re-upload the document."
-            
-            # Debug info (you can remove this later)
-            vector_store = st.session_state.vector_store
-            text_contents = st.session_state.text_contents
-            
-            if vector_store is None:
-                return "Error: Vector store is None."
-            
-            if not text_contents:
-                return "Error: Text contents are empty."
-            
-            # Call the retrieval function
-            context = retrieval(vector_store, user_query, text_contents)
-            
-            if not context or context.strip() == "":
-                return "No relevant information found in the patient records for your query."
-            
-            return context
-            
-        except Exception as e:
-            return f"Search Error: {str(e)}. Please check if the document was properly uploaded and processed."
+# Global storage for vector database
+vector_index = None
+document_contents = None
+
+@tool
+def load_patient_records(pdf_path: str) -> str:
+    """Use this tool to load the patient's medical records and create vector database to store them as embeddings for retrieval"""
+    global vector_index, document_contents
     
-    return query_patient_record
+    try:
+        pages = document_loader(pdf_path)
+        full_text = ""
+        for page in pages:
+            full_text += remove_extra_spaces(page.page_content) + "\n"
+        
+        text_splitter = split_text()
+        chunks = create_chunks(full_text, text_splitter)
+        embeddings, text_contents = create_embeddings(chunks)
+        vector_index = create_vector_store(embeddings)
+        document_contents = text_contents
+        
+        return f"PDF loaded: {pdf_path}"
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+@tool
+def search_patient_records(query: str) -> str:
+    """Use this tool to search through the patient records."""
+    if vector_index is None:
+        return "No PDF loaded. Use load_pdf first."
+    
+    try:
+        context = retrieval(vector_index, query, document_contents)
+        return context
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+
