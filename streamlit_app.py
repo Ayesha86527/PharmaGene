@@ -221,7 +221,7 @@ def set_current_session(session_key):
 
 def get_current_session():
     """Get the current session key"""
-    return globals().get('CURRENT_SESSION_KEY', 'default')
+   return globals().get('CURRENT_SESSION_KEY', 'default')
 
 @tool
 def load_patient_records(pdf_path: str) -> str:
@@ -385,6 +385,7 @@ if st.sidebar.button("Clear Conversation"):
     except Exception:
         pass
     st.rerun()
+
 
 
 
