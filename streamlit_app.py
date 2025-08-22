@@ -50,8 +50,9 @@ if uploaded_file is not None:
             tmp_file_path = tmp_file.name
         
         # Process the document
-        load_patient_records.invoke({"pdf_path": tmp_file_path})
+        result = load_patient_records.invoke({"pdf_path": tmp_file_path})
         st.success("Document processed successfully!")
+        st.info(f"Status: {result}")
         
     except Exception as e:
         st.error(f"Error processing document: {str(e)}")
