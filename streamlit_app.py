@@ -6,7 +6,7 @@ import streamlit as st
 import tempfile
 import os
 import uuid
-from utilss import SYSTEM_MESSAGE,tavily_fact_based_search, tavily_clinical_guidelines_search, tavily_safety_data_search, create_query_patient_record_tool,document_loader,split_text,create_chunks,create_embeddings,create_vector_store,remove_extra_spaces
+from utilss import SYSTEM_MESSAGE,tavily_fact_based_search, tavily_clinical_guidelines_search, tavily_safety_data_search, load_patient_records, search_patient_records,document_loader,split_text,create_chunks,create_embeddings,create_vector_store,remove_extra_spaces
 
 # Configuring API Keys
 
@@ -26,10 +26,6 @@ if "thread_id" not in st.session_state:
 # Initialize memory (but not the agent yet)
 if "memory" not in st.session_state:
     st.session_state.memory = MemorySaver()
-
-# Initialize document processing flags
-if "document_processed" not in st.session_state:
-    st.session_state.document_processed = False
 
 # Show chat history
 for msg in st.session_state.messages:
@@ -54,29 +50,11 @@ if uploaded_file is not None:
             tmp_file_path = tmp_file.name
         
         # Process the document
-        pages = document_loader(tmp_file_path)
-        text_splitter = split_text()
-        
-        # Extract text from pages
-        all_text = ""
-        for page in pages:
-            all_text += page.page_content + "\n"
-        
-        clean_text = remove_extra_spaces(all_text)
-        chunks = create_chunks(clean_text, text_splitter)
-        embeddings, text_contents = create_embeddings(chunks)
-        vector_store = create_vector_store(embeddings)
-        
-        # Store in session state for tool access
-        st.session_state.vector_store = vector_store
-        st.session_state.text_contents = text_contents
-        st.session_state.document_processed = True
-        
+        load_patient_records(tmp_file_path)
         st.success("Document processed successfully!")
         
     except Exception as e:
         st.error(f"Error processing document: {str(e)}")
-        st.session_state.document_processed = False
     
     finally:
         # Clean up the temporary file
@@ -92,20 +70,12 @@ def get_agent_executor():
         max_retries=2,
         api_key=groq_api_key
     )
-    
-    # Create the patient record tool dynamically to ensure it has access to current session state
-    patient_record_tool = create_query_patient_record_tool()
-    
-    tools = [tavily_fact_based_search, tavily_clinical_guidelines_search, tavily_safety_data_search, patient_record_tool]
+    tools = [tavily_fact_based_search, tavily_clinical_guidelines_search, tavily_safety_data_search, load_patient_records,search_patient_records]
     agent_executor = create_react_agent(model, tools, checkpointer=st.session_state.memory)
     return agent_executor
 
-# Chat input - FIXED: Remove the specific prompt condition
-if prompt := st.chat_input("Ask me anything about the medical records..."):
-    # Check if document is uploaded and processed
-    if not st.session_state.get('document_processed', False):
-        st.warning("Please upload and process a medical document first!")
-    else:
+# Chat input 
+if prompt := st.chat_input("Hey! How can I assist you today?"):
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
@@ -157,3 +127,4 @@ if st.sidebar.button("Clear Conversation"):
     except Exception:
         pass
     st.rerun()
+
