@@ -212,16 +212,9 @@ def retrieval(index, user_prompt, text_contents):
     retrieved_info = [text_contents[idx] for idx in indices[0]]
     context = "\n".join(retrieved_info)
     return context
-
-# Global storage for vector database
-vector_index = None
-document_contents = None
-
 @tool
 def load_patient_records(pdf_path: str) -> str:
     """Use this tool to load the patient's medical records and create vector database to store them as embeddings for retrieval"""
-    global vector_index, document_contents
-    
     try:
         pages = document_loader(pdf_path)
         full_text = ""
@@ -231,23 +224,26 @@ def load_patient_records(pdf_path: str) -> str:
         text_splitter = split_text()
         chunks = create_chunks(full_text, text_splitter)
         embeddings, text_contents = create_embeddings(chunks)
-        vector_index = create_vector_store(embeddings)
-        document_contents = text_contents
         
-        return f"PDF loaded: {pdf_path}"
+        # Store in session state instead of global variables
+        st.session_state.vector_index = create_vector_store(embeddings)
+        st.session_state.document_contents = text_contents
+        
+        return f"Patient records loaded successfully from: {pdf_path}"
     except Exception as e:
-        return f"Error: {str(e)}"
+        return f"Error loading patient records: {str(e)}"
 
 @tool
 def search_patient_records(query: str) -> str:
     """Use this tool to search through the patient records."""
-    if vector_index is None:
-        return "No PDF loaded. Use load_pdf first."
+    # Access from session state instead of global variables
+    if st.session_state.vector_index is None or st.session_state.document_contents is None:
+        return "No patient records loaded. Please upload and load patient records first."
     
     try:
-        context = retrieval(vector_index, query, document_contents)
-        return context
+        context = retrieval(st.session_state.vector_index, query, st.session_state.document_contents)
+        return f"Found information from patient records:\n{context}"
     except Exception as e:
-        return f"Error: {str(e)}"
+        return f"Error searching patient records: {str(e)}"
 
 
