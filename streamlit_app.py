@@ -50,7 +50,7 @@ if uploaded_file is not None:
             tmp_file_path = tmp_file.name
         
         # Process the document
-        load_patient_records(tmp_file_path)
+        load_patient_records.invoke({"pdf_path": tmp_file_path})
         st.success("Document processed successfully!")
         
     except Exception as e:
@@ -127,4 +127,5 @@ if st.sidebar.button("Clear Conversation"):
     except Exception:
         pass
     st.rerun()
+
 
