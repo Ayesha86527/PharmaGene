@@ -216,12 +216,34 @@ def create_query_patient_record_tool():
            For Example: "Does this patient have any genetic marker for CYP2D6 metabolism issues?"""
         try:
             # Check if vector store exists in session state
-            if "vector_store" not in st.session_state or "text_contents" not in st.session_state:
-                return "Error: No document uploaded. Please upload a document first."
+            if "vector_store" not in st.session_state:
+                return "Error: No vector store found. Please upload and process a document first."
             
-            context = retrieval(st.session_state.vector_store, user_query, st.session_state.text_contents)
+            if "text_contents" not in st.session_state:
+                return "Error: No text contents found. Please upload and process a document first."
+            
+            if not st.session_state.get('document_processed', False):
+                return "Error: Document not properly processed. Please re-upload the document."
+            
+            # Debug info (you can remove this later)
+            vector_store = st.session_state.vector_store
+            text_contents = st.session_state.text_contents
+            
+            if vector_store is None:
+                return "Error: Vector store is None."
+            
+            if not text_contents:
+                return "Error: Text contents are empty."
+            
+            # Call the retrieval function
+            context = retrieval(vector_store, user_query, text_contents)
+            
+            if not context or context.strip() == "":
+                return "No relevant information found in the patient records for your query."
+            
             return context
+            
         except Exception as e:
-            return f"Search Error: {str(e)}"
+            return f"Search Error: {str(e)}. Please check if the document was properly uploaded and processed."
     
     return query_patient_record
