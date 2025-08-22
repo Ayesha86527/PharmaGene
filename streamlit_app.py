@@ -172,6 +172,7 @@ def tavily_safety_data_search(query: str) -> str:
 embedding_model = SentenceTransformer('paraphrase-MiniLM-L6-v2')
 # Global storage for vector databases (session-based)
 VECTOR_STORAGE = {}
+CURRENT_SESSION_KEY = None
 
 def document_loader(pdf_filename):
     loader = PyPDFLoader(pdf_filename)
@@ -218,10 +219,12 @@ def set_current_session(session_key):
     """Set the current session key - call this from streamlit_app.py"""
     global CURRENT_SESSION_KEY
     CURRENT_SESSION_KEY = session_key
-   
+
 def get_current_session():
-    """Get the current session key"""
-    return globals().get('CURRENT_SESSION_KEY', 'default')
+    global CURRENT_SESSION_KEY
+    if CURRENT_SESSION_KEY is None:
+        return "default"
+    return CURRENT_SESSION_KEY
 
 @tool
 def load_patient_records(pdf_path: str) -> str:
@@ -385,6 +388,7 @@ if st.sidebar.button("Clear Conversation"):
     except Exception:
         pass
     st.rerun()
+
 
 
 
