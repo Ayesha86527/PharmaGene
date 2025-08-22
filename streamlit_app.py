@@ -6,7 +6,9 @@ import streamlit as st
 import tempfile
 import os
 import uuid
-from utilss import SYSTEM_MESSAGE,tavily_fact_based_search, tavily_clinical_guidelines_search, tavily_safety_data_search, load_patient_records, search_patient_records,document_loader,split_text,create_chunks,create_embeddings,create_vector_store,remove_extra_spaces
+from utilss import (SYSTEM_MESSAGE,tavily_fact_based_search, tavily_clinical_guidelines_search, tavily_safety_data_search, 
+load_patient_records, search_patient_records,document_loader,split_text,create_chunks,create_embeddings,create_vector_store,
+remove_extra_spaces,set_current_session)
 
 # Configuring API Keys
 
@@ -26,6 +28,13 @@ if "thread_id" not in st.session_state:
 # Initialize memory (but not the agent yet)
 if "memory" not in st.session_state:
     st.session_state.memory = MemorySaver()
+
+# Create unique session key for this session
+if "session_key" not in st.session_state:
+    st.session_state.session_key = str(uuid.uuid4())
+
+# Set the current session in utils.py so tools can access it
+set_current_session(st.session_state.session_key)
 
 # Show chat history
 for msg in st.session_state.messages:
@@ -62,6 +71,8 @@ if uploaded_file is not None:
             os.unlink(tmp_file_path)
 
 def get_agent_executor():
+    # Make sure session is set before creating agent
+    set_current_session(st.session_state.session_key)
     model = ChatGroq(
         model="openai/gpt-oss-120b",
         temperature=0,
@@ -127,6 +138,7 @@ if st.sidebar.button("Clear Conversation"):
     except Exception:
         pass
     st.rerun()
+
 
 
 
