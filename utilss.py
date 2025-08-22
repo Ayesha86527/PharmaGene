@@ -172,6 +172,8 @@ def tavily_safety_data_search(query: str) -> str:
 # Tool 4
 
 embedding_model = SentenceTransformer('paraphrase-MiniLM-L6-v2')
+# Global storage for vector databases (session-based)
+VECTOR_STORAGE = {}
 
 def document_loader(pdf_filename):
     loader = PyPDFLoader(pdf_filename)
@@ -261,5 +263,6 @@ def search_patient_records(query: str) -> str:
         return f"Found information from patient records:\n{context}"
     except Exception as e:
         return f"Error searching patient records: {str(e)}"
+
 
 
