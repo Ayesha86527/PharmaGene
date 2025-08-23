@@ -34,11 +34,8 @@ You have access to the following tools. Each tool has a specific purpose, and yo
    - Use ONLY to find real-world evidence, case studies, post-marketing safety data, and adverse drug reaction reports.
 
 4. search_patient_records:
-   - Use ONLY to search through the patient’s uploaded reports, genetic test results, or medical history stored in the vector database.
+   - Use ONLY to search through the patient’s uploaded reports, genetic test results, or medical history.
 
-5. load_patient_records:
-   - Use ONLY once per session to load the medical records and embed them in the vector database. So that you can use search_patient_record tool
-   to search through patient's medical records without the need of embedding records again and again.
 
 Tool Usage Rules:
 - Select the tool(s) strictly based on the type of question.
@@ -161,11 +158,11 @@ def tavily_safety_data_search(query: str) -> str:
     except Exception as e:
         return f"Search error: {str(e)}"
 
+
+
 # Tool 4
+
 embedding_model = SentenceTransformer('paraphrase-MiniLM-L6-v2')
-# Global storage for vector databases (session-based)
-VECTOR_STORAGE = {}
-CURRENT_SESSION_KEY = None
 
 def document_loader(pdf_filename):
     loader = PyPDFLoader(pdf_filename)
@@ -207,114 +204,56 @@ def retrieval(index, user_prompt, text_contents):
     context = "\n".join(retrieved_info)
     return context
 
-# Functions to manage storage with session key
-def set_current_session(session_key):
-    """Set the current session key - call this from streamlit_app.py"""
-    global CURRENT_SESSION_KEY
-    CURRENT_SESSION_KEY = session_key
-
-def get_current_session():
-    global CURRENT_SESSION_KEY
-    if CURRENT_SESSION_KEY is None:
-        return "default"
-    return CURRENT_SESSION_KEY
-
-@tool
-def load_patient_records(pdf_path: str) -> str:
-    """Use this tool to load the patient's medical records and create vector database to store them as embeddings for retrieval"""
-    try:
-        pages = document_loader(pdf_path)
-        full_text = ""
-        for page in pages:
-            full_text += remove_extra_spaces(page.page_content) + "\n"
-        
-        text_splitter = split_text()
-        chunks = create_chunks(full_text, text_splitter)
-        embeddings, text_contents = create_embeddings(chunks)
-        
-        # Store in global dict with current session key
-        session_key = get_current_session()
-        VECTOR_STORAGE[session_key] = {
-            "vector_index": create_vector_store(embeddings),
-            "document_contents": text_contents
-        }
-        
-        return f"Patient records loaded successfully. Session: {session_key}"
-    except Exception as e:
-        return f"Error loading patient records: {str(e)}"
-
-@tool
-def search_patient_records(query: str) -> str:
-    """ALWAYS use this tool when user asks about patient information, medical history, medications, conditions, or any patient-specific details. Search through uploaded patient records and medical documents."""
-    session_key = get_current_session()
+def create_patient_records_retrieval_tool(index, text_contents):
+    @tool
+    def search_patient_records(query: str) -> str:
+        """Retrieve relevant information from uploaded documents based on user query."""
+        return retrieval(index, query, text_contents)
     
-    if session_key not in VECTOR_STORAGE:
-        return "No patient records loaded. Please upload and load patient records first."
-    
-    try:
-        storage = VECTOR_STORAGE[session_key]
-        context = retrieval(storage["vector_index"], query, storage["document_contents"])
-        return f"Found information from patient records:\n{context}"
-    except Exception as e:
-        return f"Error searching patient records: {str(e)}"
+    return search_patient_records
 
+
+#-------------STREAMLIT APP-----------
 st.title("PharmaGene")
 
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+uploaded_doc = st.file_uploader("Upload patient's medical records", type=["pdf", "docx", "txt"])
 
-# Initialize thread_id for this session (important for MemorySaver)
-if "thread_id" not in st.session_state:
-    st.session_state.thread_id = str(uuid.uuid4())
+if "vector_store" not in st.session_state:
+    st.session_state.vector_store = None
+if "text_contents" not in st.session_state:
+    st.session_state.text_contents = None
 
-# Initialize memory (but not the agent yet)
-if "memory" not in st.session_state:
-    st.session_state.memory = MemorySaver()
-
-# Create unique session key for this session
-if "session_key" not in st.session_state:
-    st.session_state.session_key = str(uuid.uuid4())
-
-# Set the current session in utils.py so tools can access it
-set_current_session(st.session_state.session_key)
-
-# Show chat history
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
-
-uploaded_file = st.file_uploader("Upload the medical reports", type=["pdf", "docx", "txt"])
-
-if uploaded_file is not None:
+if uploaded_doc and st.session_state.vector_store is None:
     try:
         # Get the correct file extension
-        file_extension = os.path.splitext(uploaded_file.name)[1]
+        file_extension = os.path.splitext(uploaded_doc.name)[1]
         
         # Create a temporary file with the correct extension
         with tempfile.NamedTemporaryFile(
             delete=False, 
-            suffix=file_extension,  # Use actual file extension, not hardcoded .pdf
-            prefix=uploaded_file.name.split('.')[0] + '_'
+            suffix=file_extension,
+            prefix=uploaded_doc.name.split('.')[0] + '_'
         ) as tmp_file:
             # Write the uploaded file content to temp file
-            tmp_file.write(uploaded_file.getvalue())
+            tmp_file.write(uploaded_doc.getvalue())
             tmp_file_path = tmp_file.name
-        
-        # Process the document
-        result = load_patient_records.invoke({"pdf_path": tmp_file_path})
-        st.success(f"Status: {result}")
-        
+            pages = document_loader(tmp_file_path)
+            text_splitter = split_text()
+            chunks = create_chunks(pages, text_splitter)
+            embeddings, text_contents = create_embeddings(chunks)
+            vector_store = create_vector_store(embeddings)
+
+            st.session_state.vector_store = vector_store
+            st.session_state.text_contents = text_contents
+
     except Exception as e:
         st.error(f"Error processing document: {str(e)}")
-    
     finally:
-        # Clean up the temporary file
         if 'tmp_file_path' in locals() and os.path.exists(tmp_file_path):
             os.unlink(tmp_file_path)
 
 def get_agent_executor():
-    # Make sure session is set before creating agent
-    set_current_session(st.session_state.session_key)
+    memory = MemorySaver()
     model = ChatGroq(
         model="openai/gpt-oss-120b",
         temperature=0,
@@ -323,8 +262,18 @@ def get_agent_executor():
         max_retries=2,
         api_key=groq_api_key
     )
-    tools = [tavily_fact_based_search, tavily_clinical_guidelines_search, tavily_safety_data_search, load_patient_records, search_patient_records]
-    agent_executor = create_react_agent(model, tools, checkpointer=st.session_state.memory)
+    
+    # Create tools list - include patient records tool if available
+    tools = [tavily_fact_based_search, tavily_clinical_guidelines_search, tavily_safety_data_search]
+    
+    if st.session_state.vector_store is not None and st.session_state.text_contents is not None:
+        search_patient_records = create_patient_records_retrieval_tool(
+            st.session_state.vector_store, 
+            st.session_state.text_contents
+        )
+        tools.append(search_patient_records)
+    
+    agent_executor = create_react_agent(model, tools, checkpointer=memory)
     return agent_executor
 
 # Chat input 
@@ -337,7 +286,7 @@ if prompt := st.chat_input("Hey! How can I assist you today?"):
     with st.chat_message("assistant"):
         with st.spinner("Generating Response..."):
             try:
-                # Get agent executor (not cached, so tools have access to current session state)
+                # Get agent executor with current session tools
                 agent_executor = get_agent_executor()
                 
                 # Configure for your agent
@@ -380,7 +329,5 @@ if st.sidebar.button("Clear Conversation"):
     except Exception:
         pass
     st.rerun()
-
-
 
 
