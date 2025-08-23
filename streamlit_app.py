@@ -245,7 +245,7 @@ def load_patient_records(pdf_path: str) -> str:
 
 @tool
 def search_patient_records(query: str) -> str:
-    """Use this tool to search through the patient records."""
+    """ALWAYS use this tool when user asks about patient information, medical history, medications, conditions, or any patient-specific details. Search through uploaded patient records and medical documents."""
     session_key = get_current_session()
     
     if session_key not in VECTOR_STORAGE:
@@ -380,6 +380,7 @@ if st.sidebar.button("Clear Conversation"):
     except Exception:
         pass
     st.rerun()
+
 
 
 
