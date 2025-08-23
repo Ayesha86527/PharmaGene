@@ -15,54 +15,10 @@ import os
 import uuid
 
 # Configuring API Keys
-
 tavily_api_key = st.secrets["TAVILY_API_KEY"]
 groq_api_key = st.secrets["GROQ_API_KEY"]
 
-SYSTEM_MESSAGE="""You are a helpful pharmacogenomics assistant. Your role is to assist doctors and clinicians in prescribing the right medications to patients
-based on their medical history, genetics, allergies, and conditions.
-
-You have access to the following tools. Each tool has a specific purpose, and you should only use the tool(s) that directly match the query:
-
-1. tavily_fact_based_search:
-   - Use ONLY for core pharmacogenomics knowledge such as drug–gene interactions, genetic markers, and fundamental concepts.
-
-2. tavily_clinical_guidelines_search:
-   - Use ONLY to retrieve clinical guidelines and official recommendations from trusted bodies like NCCN, WHO, or FDA.
-
-3. tavily_safety_data_search:
-   - Use ONLY to find real-world evidence, case studies, post-marketing safety data, and adverse drug reaction reports.
-
-4. search_patient_records:
-   - Use ONLY to search through the patient’s uploaded reports, genetic test results, or medical history stored in the vector database.
-
-5. load_patient_records:
-   - Use ONLY once per session to load the medical records and embed them in the vector database. So that you can use search_patient_record tool
-   to search through patient's medical records without the need of embedding records again and again.
-
-Tool Usage Rules:
-- Select the tool(s) strictly based on the type of question.
-- If the query is about a patient’s specific data, check `search_patient_records` first.
-- If the query is about general pharmacogenomics knowledge, use `tavily_fact_based_search`.
-- If the query is about treatment standards or protocols, use `tavily_clinical_guidelines_search`.
-- If the query is about risks, safety, or real-world usage, use `tavily_safety_data_search`.
-- If multiple tools are clearly required, combine them in ONE step only. Never loop between tools.
-- **IMPORTANT:** When using a tool, ensure the arguments are provided as a valid JSON object.
-- If none of the tools match, respond:
-  "I’m sorry, but I couldn’t find relevant information for [drug/gene/symptom/etc.]."
-
-Output Guidelines:
-- Always give structured, concise responses.
-- Include source URLs from the tool output.
-- Do NOT speculate outside pharmacogenomics or patient safety context.
-- Do NOT re-query the same tool repeatedly for the same question.
-- Always provide the exact source url with the answer from where you have found the answer.
-- If the user asks the same question in a particular session which was asked before in the session that you do not need to use the tools again just return the
-answer from the session memory.
-
-Stop Condition:
-- Once you have gathered enough from the selected tool(s) to answer, STOP and return the result.
-"""
+SYSTEM_MESSAGE = """You are a helpful pharmacogenomics assistant. You can search for drug information, clinical guidelines, safety data, and analyze patient records."""
 
 # Extraction function
 def extract_search_results(raw_results):
@@ -74,13 +30,12 @@ def extract_search_results(raw_results):
     return '\n'.join(extracted_results)
 
 # Tool 1
-
 # Create the original search object
 fact_based_search = TavilySearch(
     search_depth="basic",
     max_results=1,
     tavily_api_key=tavily_api_key,
-    include_domains=["clinpgx.org","cpicpgx.org/guidelines/","fda.gov/drugs/science-and-research-drugs/table-pharmacogenomic-biomarkers-drug-labeling"
+    include_domains=["clinpgx.org","cpicpgx.org/guidelines/","fda.gov/drugs/science-and-research-drugs/table-pharmacogenomic-biomarkers-drug-labeling",
     "go.drugbank.com"],
     include_raw_content=False,
     include_images=False,
@@ -103,10 +58,8 @@ def tavily_fact_based_search(query: str) -> str:
 
     except Exception as e:
         return f"Search error: {str(e)}"
-    
 
 # Tool 2
-
 # Create the original search object
 clinical_guidelines_search = TavilySearch(
     search_depth="basic",
@@ -137,7 +90,6 @@ def tavily_clinical_guidelines_search(query: str) -> str:
         return f"Search error: {str(e)}"
 
 # Tool 3
-
 # Create the original search object
 safety_data_search = TavilySearch(
     search_depth="basic",
@@ -166,9 +118,7 @@ def tavily_safety_data_search(query: str) -> str:
     except Exception as e:
         return f"Search error: {str(e)}"
 
-
 # Tool 4
-
 embedding_model = SentenceTransformer('paraphrase-MiniLM-L6-v2')
 # Global storage for vector databases (session-based)
 VECTOR_STORAGE = {}
@@ -180,19 +130,19 @@ def document_loader(pdf_filename):
     return pages
 
 def split_text():
-  text_splitter = RecursiveCharacterTextSplitter(
-    chunk_size=500,
-    chunk_overlap=100,
-    length_function=len,
-)
-  return text_splitter
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=500,
+        chunk_overlap=100,
+        length_function=len,
+    )
+    return text_splitter
 
-def create_chunks(text,text_splitter):
+def create_chunks(text, text_splitter):
     texts = text_splitter.create_documents([text])
     return texts
 
 def remove_extra_spaces(text):
-    raw_text=' '.join(text.split())
+    raw_text = ' '.join(text.split())
     return raw_text
 
 def create_embeddings(chunks):
@@ -209,7 +159,7 @@ def create_vector_store(embeddings):
 def retrieval(index, user_prompt, text_contents):
     query_embedding = embedding_model.encode([user_prompt])
     k = 5
-    indices = index.search(query_embedding, k)
+    distances, indices = index.search(query_embedding, k)
     retrieved_info = [text_contents[idx] for idx in indices[0]]
     context = "\n".join(retrieved_info)
     return context
@@ -252,7 +202,7 @@ def load_patient_records(pdf_path: str) -> str:
 
 @tool
 def search_patient_records(query: str) -> str:
-     """Use this tool to search through the patient records."""
+    """Use this tool to search through the patient records."""
     session_key = get_current_session()
     
     if session_key not in VECTOR_STORAGE:
@@ -264,7 +214,6 @@ def search_patient_records(query: str) -> str:
         return f"Found information from patient records:\n{context}"
     except Exception as e:
         return f"Error searching patient records: {str(e)}"
-
 
 st.title("PharmaGene")
 
@@ -331,53 +280,53 @@ def get_agent_executor():
         max_retries=2,
         api_key=groq_api_key
     )
-    tools = [tavily_fact_based_search, tavily_clinical_guidelines_search, tavily_safety_data_search, load_patient_records,search_patient_records]
+    tools = [tavily_fact_based_search, tavily_clinical_guidelines_search, tavily_safety_data_search, load_patient_records, search_patient_records]
     agent_executor = create_react_agent(model, tools, checkpointer=st.session_state.memory)
     return agent_executor
 
 # Chat input 
 if prompt := st.chat_input("Hey! How can I assist you today?"):
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
 
-        # Process with agent
-        with st.chat_message("assistant"):
-            with st.spinner("Generating Response..."):
-                try:
-                    # Get agent executor (not cached, so tools have access to current session state)
-                    agent_executor = get_agent_executor()
-                    
-                    # Configure for your agent
-                    config = {"configurable": {"thread_id": st.session_state.thread_id}}
-                    
-                    # Create the input for the agent
-                    input_messages = [
-                        {"role": "system", "content": SYSTEM_MESSAGE},
-                        {"role": "user", "content": prompt}
-                    ]
-                    
-                    # Invoke the agent
-                    response = agent_executor.invoke(
-                        {"messages": input_messages}, 
-                        config=config
-                    )
-                    
-                    # Extract the final response
-                    if response and "messages" in response:
-                        response_content = response["messages"][-1].content
-                    else:
-                        response_content = "I couldn't process your request. Please try again."
-                    
-                except Exception as e:
-                    response_content = f"Something went wrong! Error Info: {str(e)}"
-                    st.error(response_content)
+    # Process with agent
+    with st.chat_message("assistant"):
+        with st.spinner("Generating Response..."):
+            try:
+                # Get agent executor (not cached, so tools have access to current session state)
+                agent_executor = get_agent_executor()
                 
-                # Display the response
-                st.markdown(response_content)
+                # Configure for your agent
+                config = {"configurable": {"thread_id": st.session_state.thread_id}}
                 
-                # Add assistant response to session state
-                st.session_state.messages.append({"role": "assistant", "content": response_content})
+                # Create the input for the agent
+                input_messages = [
+                    {"role": "system", "content": SYSTEM_MESSAGE},
+                    {"role": "user", "content": prompt}
+                ]
+                
+                # Invoke the agent
+                response = agent_executor.invoke(
+                    {"messages": input_messages}, 
+                    config=config
+                )
+                
+                # Extract the final response
+                if response and "messages" in response:
+                    response_content = response["messages"][-1].content
+                else:
+                    response_content = "I couldn't process your request. Please try again."
+                
+            except Exception as e:
+                response_content = f"Something went wrong! Error Info: {str(e)}"
+                st.error(response_content)
+            
+            # Display the response
+            st.markdown(response_content)
+            
+            # Add assistant response to session state
+            st.session_state.messages.append({"role": "assistant", "content": response_content})
 
 # Add a button to clear conversation history
 if st.sidebar.button("Clear Conversation"):
@@ -388,14 +337,5 @@ if st.sidebar.button("Clear Conversation"):
     except Exception:
         pass
     st.rerun()
-
-
-
-
-
-
-
-
-
 
 
