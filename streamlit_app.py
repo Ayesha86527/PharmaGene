@@ -239,7 +239,8 @@ if uploaded_doc and st.session_state.vector_store is None:
             tmp_file_path = tmp_file.name
             pages = document_loader(tmp_file_path)
             text_splitter = split_text()
-            chunks = create_chunks(pages, text_splitter)
+            all_text = " ".join([page.page_content for page in pages])
+            chunks = create_chunks(all_text, text_splitter)
             embeddings, text_contents = create_embeddings(chunks)
             vector_store = create_vector_store(embeddings)
 
@@ -329,6 +330,7 @@ if st.sidebar.button("Clear Conversation"):
     except Exception:
         pass
     st.rerun()
+
 
 
 
