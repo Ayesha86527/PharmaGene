@@ -214,17 +214,14 @@ def create_patient_records_retrieval_tool(index, text_contents):
 
 
 #-------------STREAMLIT APP-----------
-st.title("PharmaGene")
+st.title("🧬🩺 PharmaGene - Prescribe with Care")
+
+uploaded_doc = st.file_uploader("Upload patient's medical records", type=["pdf", "docx", "txt"])
 
 if "vector_store" not in st.session_state:
     st.session_state.vector_store = None
 if "text_contents" not in st.session_state:
     st.session_state.text_contents = None
-
-if st.session_state.vector_store is None:
-   uploaded_doc = st.file_uploader("Upload patient's medical records", type=["pdf", "docx", "txt"])
-else:
-   uploaded_doc=None
 
 if uploaded_doc and st.session_state.vector_store is None:
     try:
@@ -332,6 +329,7 @@ if st.sidebar.button("Clear Conversation"):
     except Exception:
         pass
     st.rerun()
+
 
 
 
