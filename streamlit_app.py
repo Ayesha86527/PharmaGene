@@ -50,10 +50,9 @@ Tool Usage Rules:
 
 Output Guidelines:
 - Always give structured, concise responses.
-- Include source URLs from the tool output.
+- Include source URLs from the tool(s) you used to search from the internet.
 - Do NOT speculate outside pharmacogenomics or patient safety context.
 - Do NOT re-query the same tool repeatedly for the same question.
-- Always provide the exact source url with the answer from where you have found the answer.
 - If the user asks the same question in a particular session which was asked before in the session that you do not need to use the tools again just return the
 answer from the session memory.
 
@@ -337,6 +336,7 @@ if st.sidebar.button("Clear Conversation"):
     except Exception:
         pass
     st.rerun()
+
 
 
 
