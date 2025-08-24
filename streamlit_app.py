@@ -218,6 +218,13 @@ st.title("🧬🩺 PharmaGene - Prescribe with Care")
 
 uploaded_doc = st.file_uploader("Upload patient's medical records", type=["pdf", "docx", "txt"])
 
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+# Initialize thread_id for this session 
+if "thread_id" not in st.session_state:
+    st.session_state.thread_id = str(uuid.uuid4())
+
 if "vector_store" not in st.session_state:
     st.session_state.vector_store = None
 if "text_contents" not in st.session_state:
@@ -330,6 +337,7 @@ if st.sidebar.button("Clear Conversation"):
     except Exception:
         pass
     st.rerun()
+
 
 
 
