@@ -28,6 +28,29 @@ Clone the repository:
 git clone https://github.com/Ayesha86527/PharmaGene.git
 cd PharmaGene
 
+**Create a virtual environment & activate:**
+```bash
+python -m venv venv
+source venv/bin/activate   # On macOS/Linux
+venv\Scripts\activate      # On Windows
+
+**Install dependencies:**
+```bash
+pip install -r requirements.txt
+
+**Set up environment variables (create a .env file in the root directory):**
+```bash
+TAVILY_API_KEY=your_tavily_api_key
+GROQ_API_KEY=your_groq_api_key
+
+**Run the Streamlit app:**
+```bash
+streamlit run app.py
+
+**Your app will be live at:**
+👉 http://localhost:8501
+
+
 
 
 
