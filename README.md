@@ -12,7 +12,7 @@ By combining **vector-based retrieval**, **trusted medical sources** (FDA, WHO, 
 - 💻 **Interactive Interface** – Lightweight Streamlit frontend for clinicians.
 
 ## 🚀 Live Demo  
-👉 [Try PharmaGene on Streamlit](https://your-streamlit-link.com)  
+👉 [Try PharmaGene on Streamlit](https://pharmagene-fahxxmrjfwhaqxwdtnkifw.streamlit.app/)  
 
 ## 🛠️ Tech Stack
 - **Python** – Core language  
